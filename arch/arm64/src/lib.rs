@@ -21,6 +21,7 @@ pub mod exception;
 pub mod gic;
 pub mod timer;
 pub mod mmu;
+pub mod context;
 
 /// Initialize the ARM64 hardware for kernel operation.
 /// 

@@ -10,11 +10,34 @@
 
 #![no_std]
 #![no_main]
+#![feature(alloc_error_handler)]
+
+extern crate alloc;
 
 use aprk_arch_arm64::{self as arch, cpu, println};
+use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
-// =============================================================================
+mod mm;
+mod sched;
+
+// Task 1 Function
+extern "C" fn task_one() {
+    unsafe { arch::cpu::enable_interrupts(); }
+    loop {
+        println!("Task 1 is running!");
+        for _ in 0..10_000_000 { unsafe { core::arch::asm!("nop") } } // Slow it down
+    }
+}
+
+// Task 2 Function
+extern "C" fn task_two() {
+    unsafe { arch::cpu::enable_interrupts(); }
+    loop {
+        println!("Task 2 is ALIVE!");
+        for _ in 0..10_000_000 { unsafe { core::arch::asm!("nop") } } // Slow it down
+    }
+}
 // Version Information
 // =============================================================================
 
@@ -42,6 +65,9 @@ pub extern "C" fn kernel_main() -> ! {
     // Initialize architecture-specific hardware
     // This now includes MMU, Exceptions, GIC, and Timer!
     arch::init();
+    
+    // Initialize Memory Management (PMM + Heap)
+    mm::init();
 
     // Print the APRK OS banner
     print_banner();
@@ -55,6 +81,19 @@ pub extern "C" fn kernel_main() -> ! {
     println!("         - Exceptions (Vector Table)");
     println!("         - GICv2 (Interrupt Controller)");
     println!("         - ARM Generic Timer");
+    println!("         - PMM & Heap Allocator");
+    
+    // Initialize Scheduler
+    sched::init();
+    sched::spawn(task_one);
+    sched::spawn(task_two);
+    
+    // Test Heap
+    let mut v = Vec::new();
+    v.push(1);
+    v.push(2);
+    v.push(3);
+    println!("[kernel] Heap Test: Vec = {:?}", v);
     
     println!();
     println!("[kernel] Waiting for timer interrupts... (Press Ctrl+A, X to exit)");
@@ -64,6 +103,12 @@ pub extern "C" fn kernel_main() -> ! {
         // Wait For Event - puts CPU to sleep until interrupt fires
         unsafe { core::arch::asm!("wfe"); }
     }
+}
+
+// Timer Callback
+#[no_mangle]
+pub extern "Rust" fn kernel_tick() {
+    sched::schedule();
 }
 
 // =============================================================================

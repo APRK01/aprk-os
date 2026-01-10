@@ -19,6 +19,7 @@ fn main() {
     cc::Build::new()
         .file(arch_dir.join("src/boot.S"))
         .file(arch_dir.join("src/exception.S"))
+        .file(arch_dir.join("src/context.S"))
         .flag("-c")
         .flag("-target")
         .flag("aarch64-unknown-none")

@@ -26,9 +26,26 @@ pub unsafe fn init() {
 #[no_mangle]
 pub extern "C" fn handle_sync_exception() {
     let esr: u64;
-    let elr: u64;
+    
     unsafe {
         core::arch::asm!("mrs {}, esr_el1", out(reg) esr);
+    }
+    
+    let ec = (esr >> 26) & 0x3F;
+    
+    // EC = 0x15 is SVC (System Call) from AArch64
+    if ec == 0x15 {
+        let syscall_num: u64;
+        unsafe {
+             // x8 holds syscall number in Linux/ARM64 ABI
+            core::arch::asm!("mov {}, x8", out(reg) syscall_num);
+        }
+        println!("[syscall] SVC Called! Num: {}", syscall_num);
+        return; // Return to user
+    }
+    
+    let elr: u64;
+    unsafe {
         core::arch::asm!("mrs {}, elr_el1", out(reg) elr);
     }
     
@@ -52,6 +69,10 @@ pub extern "C" fn handle_irq_exception() {
         27 => {
             // Timer Interrupt
             println!("[IRQ] Timer Tick!");
+            
+            // Call into kernel scheduler
+            extern "Rust" { fn kernel_tick(); }
+            unsafe { kernel_tick(); }
             
             // Schedule next tick
             Timer::set_next_tick(Duration::from_secs(1));

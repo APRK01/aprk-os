@@ -20,15 +20,10 @@ use core::panic::PanicInfo;
 
 mod mm;
 mod sched;
+mod shell;
 
-// Task 1 Function
-extern "C" fn task_one() {
-    unsafe { arch::cpu::enable_interrupts(); }
-    loop {
-        println!("Task 1 is running!");
-        for _ in 0..10_000_000 { unsafe { core::arch::asm!("nop") } } // Slow it down
-    }
-}
+// Task 1 Function (Replaced by Shell)
+// extern "C" fn task_one() { ... }
 
 
 // User Process (EL0)
@@ -116,8 +111,8 @@ pub extern "C" fn kernel_main() -> ! {
     
     // Initialize Scheduler
     sched::init();
-    sched::spawn(task_one);
-    sched::spawn(task_two);
+    sched::spawn(shell::run);
+    // sched::spawn(task_two);
     
     // Test Heap
     let mut v = Vec::new();

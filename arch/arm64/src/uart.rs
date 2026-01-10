@@ -49,11 +49,14 @@ mod flags {
     /// Transmit FIFO full
     pub const TXFF: u32 = 1 << 5;
     
-    // RXFE (Receive FIFO empty) unused for now
-    // pub const RXFE: u32 = 1 << 4;
-    
-    // BUSY unused for now
-    // pub const BUSY: u32 = 1 << 3;
+    /// Receive FIFO empty
+    pub const RXFE: u32 = 1 << 4;
+}
+
+/// Interrupt Mask Set/Clear Register bits
+mod imsc {
+    /// Receive Interrupt Mask (RXIM) - bit 4
+    pub const RXIM: u32 = 1 << 4;
 }
 
 /// Line Control Register bits
@@ -122,6 +125,9 @@ impl Uart {
 
         // Clear all pending interrupts
         self.write_reg(regs::IMSC, 0);
+
+        // Enable Receive Interrupt (RXIM)
+        self.write_reg(regs::IMSC, imsc::RXIM);
 
         // Set baud rate (115200 with 24MHz clock)
         // Divider = 24000000 / (16 * 115200) = 13.0208
@@ -215,4 +221,75 @@ macro_rules! println {
     ($($arg:tt)*) => {
         $crate::print!("{}\n", format_args!($($arg)*))
     };
+}
+
+// =============================================================================
+// Input Ring Buffer
+// =============================================================================
+
+struct RingBuffer {
+    data: [u8; 128],
+    head: usize,
+    tail: usize,
+}
+
+impl RingBuffer {
+    const fn new() -> Self {
+        Self { data: [0; 128], head: 0, tail: 0 }
+    }
+
+    fn push(&mut self, byte: u8) {
+        let next = (self.head + 1) % 128;
+        if next != self.tail {
+            self.data[self.head] = byte;
+            self.head = next;
+        }
+    }
+
+    fn pop(&mut self) -> Option<u8> {
+        if self.head == self.tail {
+            return None;
+        }
+        let byte = self.data[self.tail];
+        self.tail = (self.tail + 1) % 128;
+        Some(byte)
+    }
+}
+
+static RX_BUFFER: Mutex<RingBuffer> = Mutex::new(RingBuffer::new());
+
+/// Handle UART Interrupt (Rx).
+/// This is called from the exception handler.
+pub fn handle_irq() {
+    let uart = Uart::new(UART0_BASE);
+    
+    // Check Flags: RXFE (Receive FIFO Empty)
+    // While RX FIFO is NOT empty...
+    while uart.read_reg(regs::FR) & flags::RXFE == 0 {
+        // Read byte
+        let c = (uart.read_reg(regs::DR) & 0xFF) as u8;
+        
+        // Push to buffer
+        RX_BUFFER.lock().push(c);
+        
+        // Echo back (for CLI feedback)
+        if c == b'\r' {
+            uart.putc(b'\r');
+            uart.putc(b'\n');
+        } else if c == 8 || c == 127 { // Backspace
+            uart.putc(8);
+            uart.putc(b' ');
+            uart.putc(8);
+        } else {
+             uart.putc(c);
+        }
+    }
+    
+    // Clear RX Interrupt (UARTICR bit 4)
+    uart.write_reg(0x44, 1 << 4);
+}
+
+/// Read a character from the serial port (non-blocking).
+pub fn get_char() -> Option<u8> {
+    RX_BUFFER.lock().pop()
 }

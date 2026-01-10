@@ -66,19 +66,19 @@ pub extern "C" fn handle_irq_exception() {
 
     // 2. Handle the interrupt
     match irq_id {
-        27 => {
+        27 | 30 => {
             // Timer Interrupt
-            println!("[IRQ] Timer Tick!");
-            
-            // Call into kernel scheduler
             extern "Rust" { fn kernel_tick(); }
             unsafe { kernel_tick(); }
             
-            // Schedule next tick
             Timer::set_next_tick(Duration::from_secs(1));
         }
+        33 => {
+            // UART Interrupt
+            crate::uart::handle_irq();
+        }
         1023 => {
-            // Spurious interrupt - ignore
+            // Spurious - ignore
         }
         _ => {
             println!("[IRQ] Unknown interrupt ID: {}", irq_id);

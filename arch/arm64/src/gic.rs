@@ -38,15 +38,25 @@ impl Gic {
         // Enable the distributor
         write_gicd(GICD_CTLR, 1);
 
-        // Enable the timer interrupt (ID 27 for virtual timer, 30 for physical)
-        // We'll use the virtual timer (CNTV), which usually maps to PPI 27.
-        // ISENABLER0 covers interrupts 0-31. Bit 27 = 1 << 27.
+        // Enable the timer interrupt (ID 27 for virtual timer)
         let timer_irq = 27;
         let reg_offset = (timer_irq / 32) * 4;
         let bit = 1 << (timer_irq % 32);
         
-        let current_enable = read_gicd(GICD_ISENABLER + reg_offset);
-        write_gicd(GICD_ISENABLER + reg_offset, current_enable | bit);
+        // Read-Modify-Write
+        let mut current_enable = read_gicd(GICD_ISENABLER + reg_offset);
+        current_enable |= bit;
+        write_gicd(GICD_ISENABLER + reg_offset, current_enable);
+
+        // Enable UART Interrupt (ID 33)
+        // ID 33 is likely in ISENABLER1 (32-63)
+        let uart_irq = 33;
+        let reg_offset_u = (uart_irq / 32) * 4;
+        let bit_u = 1 << (uart_irq % 32);
+        
+        let mut current_enable_u = read_gicd(GICD_ISENABLER + reg_offset_u);
+        current_enable_u |= bit_u;
+        write_gicd(GICD_ISENABLER + reg_offset_u, current_enable_u);
 
         // ---------------------------------------------------------------------
         // 2. CPU Interface Initialization

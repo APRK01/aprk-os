@@ -48,18 +48,16 @@ pub fn spawn(entry: extern "C" fn()) {
     let mut stack_top = unsafe { stack_ptr.add(16 * 1024) as u64 };
     
     // Setup initial context on stack
-    let stack_ptr_u64 = stack_top as *mut u64;
+    // We need space for 12 callee-saved registers (x19-x30)
+    // We'll use x19 to pass the entry point to our trampoline
     unsafe {
-        // We need to write 12 registers (x19..x30)
-        // x30 (LR) is at index 11 (offset 88 bytes)
-        // Decrement SP by 96 bytes first
-        let sp = stack_ptr_u64.sub(12);
+        let sp = (stack_top as *mut u64).sub(12);
         
-        // Write Entry point to LR (x30)
-        // sp[11] = entry address
-        *sp.add(11) = entry as u64;
+        // x19 = entry point (will be read by trampoline)
+        *sp.add(0) = entry as u64;
+        // x30 = return address = trampoline
+        *sp.add(11) = task_trampoline as u64;
         
-        // Update stack_top to point to the new SP
         stack_top = sp as u64;
     }
     
@@ -72,6 +70,25 @@ pub fn spawn(entry: extern "C" fn()) {
     };
     
     unsafe { TASKS.push(task) };
+}
+
+/// Trampoline for new tasks - enables interrupts then jumps to the real entry
+#[no_mangle]
+extern "C" fn task_trampoline() {
+    // x19 contains the real entry point (set up by spawn)
+    let entry: extern "C" fn();
+    unsafe {
+        core::arch::asm!("mov {}, x19", out(reg) entry);
+    }
+    
+    // Enable interrupts for this task
+    unsafe { aprk_arch_arm64::cpu::enable_interrupts(); }
+    
+    // Call the actual entry point
+    entry();
+    
+    // If entry returns, exit the task
+    exit_current_task();
 }
 
 /// Terminate the current task and switch to another

@@ -27,8 +27,32 @@ pub unsafe fn init() {
 }
 
 /// Handler for Synchronous Exceptions (e.g., Data Abort, SVC).
+/// Trap Frame layout matching exception.S SAVE_CONTEXT
+#[repr(C)]
+pub struct TrapFrame {
+    pub x0: u64,   pub x1: u64,   // [sp + 0]
+    pub x2: u64,   pub x3: u64,   // [sp + 16]
+    pub x4: u64,   pub x5: u64,   // [sp + 32]
+    pub x6: u64,   pub x7: u64,   // [sp + 48]
+    pub x8: u64,   pub x9: u64,   // [sp + 64]
+    pub x10: u64,  pub x11: u64,  // [sp + 80]
+    pub x12: u64,  pub x13: u64,  // [sp + 96]
+    pub x14: u64,  pub x15: u64,  // [sp + 112]
+    pub x16: u64,  pub x17: u64,  // [sp + 128]
+    pub x18: u64,  pub x19: u64,  // [sp + 144]
+    pub x20: u64,  pub x21: u64,  // [sp + 160]
+    pub x22: u64,  pub x23: u64,  // [sp + 176]
+    pub x24: u64,  pub x25: u64,  // [sp + 192]
+    pub x26: u64,  pub x27: u64,  // [sp + 208]
+    pub x28: u64,  pub x29: u64,  // [sp + 224]
+    pub x30: u64,                 // [sp + 240] (LR)
+}
+
+/// Handler for Synchronous Exceptions (SVC, Data Abort, etc.).
+/// 
+/// `trap_frame` points to the saved register context on the stack.
 #[no_mangle]
-pub extern "C" fn handle_sync_exception() {
+pub extern "C" fn handle_sync_exception(trap_frame: *mut TrapFrame) {
     let esr: u64;
     
     unsafe {
@@ -36,28 +60,19 @@ pub extern "C" fn handle_sync_exception() {
     }
     
     let ec = (esr >> 26) & 0x3F;
-    
 
     // EC = 0x15 is SVC (System Call) from AArch64
     if ec == 0x15 {
-        let id: u64;
-        let arg0: u64;
-        let arg1: u64;
+        // Read syscall arguments from the saved trap frame
+        let tf = unsafe { &*trap_frame };
+        let id = tf.x8;    // Syscall number in x8
+        let arg0 = tf.x0;  // First argument in x0
+        let arg1 = tf.x1;  // Second argument in x1
+        
         unsafe {
-             // x8 holds syscall number, x0, x1 holds args
-            core::arch::asm!(
-                "mov {0}, x8",
-                "mov {1}, x0",
-                "mov {2}, x1",
-                out(reg) id,
-                out(reg) arg0,
-                out(reg) arg1
-            );
-            
             kernel_syscall_handler(id, arg0, arg1);
 
             // Advance ELR_EL1 by 4 bytes to skip the SVC instruction
-            // preventing an infinite loop.
             let mut elr: u64;
             core::arch::asm!("mrs {0}, elr_el1", out(reg) elr);
             elr += 4;

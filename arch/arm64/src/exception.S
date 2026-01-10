@@ -112,6 +112,7 @@ exception_vector_table:
 
 sync_handler_entry:
     SAVE_CONTEXT
+    mov     x0, sp              // Pass trap frame pointer as arg0
     bl      handle_sync_exception
     RESTORE_CONTEXT
     eret

@@ -26,6 +26,8 @@ repository = "https://github.com/aprk/aprk-os"
 spin = "0.9"
 bitflags = "2.4"
 log = "0.4"
+fatfs = { git = "https://github.com/rafalh/rust-fatfs", branch = "master", default-features = false }
+virtio-drivers = "0.7"
 
 [profile.dev]
 panic = "abort"

@@ -1,1 +1,1 @@
-Hello from APRK OS Filesystem!
+Hello from APRK OS FAT32 Filesystem!

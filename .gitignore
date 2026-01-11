@@ -17,4 +17,5 @@ Cargo.lock
 # QEMU / Temp files
 *.img
 *.bin
+*.log
 qemu-vga.log

@@ -52,6 +52,8 @@ $QEMU \
     -machine virt,gic-version=2 \
     -cpu cortex-a72 \
     -m 512M \
-    -nographic \
+    -device virtio-gpu-device \
+    -drive file=disk.img,if=none,format=raw,id=drive0 \
+    -device virtio-blk-device,drive=drive0 \
     -kernel "$KERNEL" \
     -serial mon:stdio

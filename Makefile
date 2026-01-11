@@ -20,7 +20,8 @@ NC = \033[0m # No Color
 
 # Disk Configuration
 DISK_DIR = disk_root
-DISK_IMG = disk.tar
+DISK_IMG = disk.img
+DISK_DMG = disk.dmg
 
 # =============================================================================
 # Main Targets
@@ -40,16 +41,15 @@ user: ## Build user programs
 	@cp $(USER_BIN_DIR)/hello $(DISK_DIR)/hello
 
 .PHONY: disk
-disk: user ## Create RAM disk image
-	@echo "$(GREEN)[DISK]$(NC) Creating disk image..."
+disk: user ## Create FAT32 disk image
+	@echo "$(GREEN)[DISK]$(NC) Creating FAT32 disk image..."
 	@mkdir -p $(DISK_DIR)
 	@if [ ! -f $(DISK_DIR)/hello.txt ]; then \
-		echo "Hello from APRK OS Filesystem!" > $(DISK_DIR)/hello.txt; \
-		echo "This is a read-only RAM disk." > $(DISK_DIR)/readme.md; \
+		echo "Hello from APRK OS FAT32 Filesystem!" > $(DISK_DIR)/hello.txt; \
 		echo "APRK OS v0.0.1" > $(DISK_DIR)/version; \
 	fi
-	@# Create tar from directory content, not directory itself
-	@cd $(DISK_DIR) && tar -cf ../$(DISK_IMG) --format=ustar *
+	@# Create FAT32 image using hdiutil on macOS
+	@./scripts/make-disk.sh
 
 .PHONY: build
 build: disk ## Build the kernel (debug mode)

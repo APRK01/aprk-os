@@ -15,3 +15,5 @@ license.workspace = true
 aprk-arch-arm64 = { path = "../arch/arm64" }
 linked_list_allocator = "0.10.5"
 spin.workspace = true
+fatfs = { git = "https://github.com/rafalh/rust-fatfs", branch = "master", default-features = false, features = ["alloc", "lfn"] }
+virtio-drivers = "0.7"

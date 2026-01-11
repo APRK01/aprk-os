@@ -18,3 +18,7 @@ runner = "scripts/qemu-run.sh"
 [unstable]
 build-std = ["core", "alloc", "compiler_builtins"]
 build-std-features = ["compiler-builtins-mem"]
+
+[net]
+git-fetch-with-cli = true
+

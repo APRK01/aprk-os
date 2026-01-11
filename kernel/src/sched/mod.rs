@@ -252,6 +252,7 @@ extern "C" fn task_trampoline() {
 
 /// Trampoline for User Tasks
 #[no_mangle]
+#[allow(unreachable_code)]
 extern "C" fn user_trampoline() {
     let entry: u64;
     let stack: u64;
@@ -269,7 +270,6 @@ extern "C" fn user_trampoline() {
         aprk_arch_arm64::context::enter_user_mode(entry, stack);
     }
     // Should never return
-    #[allow(unreachable_code)]
     panic!("User task returned from enter_user_mode!");
 }
 
@@ -288,6 +288,19 @@ pub fn exit_current_task() -> ! {
 /// Get the current task ID
 pub fn current_task_id() -> usize {
     unsafe { TASKS[CURRENT_TASK].id }
+}
+
+/// Print all active tasks
+pub fn print_tasks() {
+    unsafe {
+        crate::println!("PID  STATE     PRIORITY  NAME");
+        crate::println!("---  -----     --------  ----");
+        for i in 0..TASK_COUNT {
+            let task = &TASKS[i];
+            crate::println!("{: <3}  {: <9?} {: <9?} {}", 
+                task.id, task.state, task.priority, task.get_name());
+        }
+    }
 }
 
 /// Get the number of active tasks

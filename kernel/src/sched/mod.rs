@@ -2,15 +2,18 @@
 // APRK OS - Process Scheduler
 // =============================================================================
 // Manages tasks and context switching with priority support.
+// Uses fixed-size arrays for stability during interrupt context.
 // =============================================================================
 
-use alloc::vec::Vec;
 use alloc::string::String;
-use aprk_arch_arm64::cpu;
+
+/// Maximum number of tasks supported
+const MAX_TASKS: usize = 16;
 
 /// Task execution states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskState {
+    Unused,     // Slot is available
     Ready,      // Can be scheduled
     Running,    // Currently executing
     Blocked,    // Waiting for I/O or event
@@ -28,35 +31,62 @@ pub enum Priority {
 }
 
 /// Process Control Block (PCB)
-#[derive(Debug)]
+#[repr(C)]
 pub struct Task {
     pub id: usize,              // Task ID (PID)
-    pub name: String,           // Task name for debugging
     pub stack_top: u64,         // Saved stack pointer
     pub state: TaskState,       // Current state
     pub priority: Priority,     // Scheduling priority
-    // Future: page_table: u64, // TTBR0 for this process
+    pub name: [u8; 16],         // Task name (fixed size for safety)
 }
 
-static mut TASKS: Vec<Task> = Vec::new();
+impl Task {
+    const fn empty() -> Self {
+        Task {
+            id: 0,
+            stack_top: 0,
+            state: TaskState::Unused,
+            priority: Priority::Idle,
+            name: [0u8; 16],
+        }
+    }
+    
+    fn set_name(&mut self, name: &str) {
+        let bytes = name.as_bytes();
+        let len = core::cmp::min(bytes.len(), 15);
+        self.name[..len].copy_from_slice(&bytes[..len]);
+        self.name[len] = 0;
+    }
+    
+    fn get_name(&self) -> &str {
+        let len = self.name.iter().position(|&c| c == 0).unwrap_or(16);
+        core::str::from_utf8(&self.name[..len]).unwrap_or("?")
+    }
+}
+
+// Fixed-size task array - no heap allocation during access
+static mut TASKS: [Task; MAX_TASKS] = [
+    Task::empty(), Task::empty(), Task::empty(), Task::empty(),
+    Task::empty(), Task::empty(), Task::empty(), Task::empty(),
+    Task::empty(), Task::empty(), Task::empty(), Task::empty(),
+    Task::empty(), Task::empty(), Task::empty(), Task::empty(),
+];
+
+static mut TASK_COUNT: usize = 0;
 static mut CURRENT_TASK: usize = 0;
 static mut NEXT_PID: usize = 0;
 
-
 pub fn init() {
     // Create the "Idle" task (Task 0), which is just the boot kernel context
-    // We don't allocate a stack for it because it's already running on the boot stack.
-    let idle = Task {
-        id: 0,
-        name: String::from("idle"),
-        stack_top: 0, // Current SP
-        state: TaskState::Running,
-        priority: Priority::Idle,
-    };
-    
     unsafe {
-        TASKS = Vec::new();
-        TASKS.push(idle);
+        TASKS[0] = Task {
+            id: 0,
+            stack_top: 0,
+            state: TaskState::Running,
+            priority: Priority::Idle,
+            name: *b"idle\0\0\0\0\0\0\0\0\0\0\0\0",
+        };
+        TASK_COUNT = 1;
         NEXT_PID = 1;
     }
 }
@@ -68,21 +98,24 @@ pub fn spawn(entry: extern "C" fn()) {
 
 /// Spawn a new task with a name and priority
 pub fn spawn_named(entry: extern "C" fn(), name: &str, priority: Priority) {
-    let id = unsafe { 
-        let pid = NEXT_PID;
-        NEXT_PID += 1;
-        pid
-    };
-    
-    // Allocate 16KB stack
-    let stack_layout = core::alloc::Layout::from_size_align(16 * 1024, 16).unwrap();
-    let stack_ptr = unsafe { alloc::alloc::alloc(stack_layout) };
-    let mut stack_top = unsafe { stack_ptr.add(16 * 1024) as u64 };
-    
-    // Setup initial context on stack
-    // We need space for 12 callee-saved registers (x19-x30)
-    // We'll use x19 to pass the entry point to our trampoline
     unsafe {
+        if TASK_COUNT >= MAX_TASKS {
+            crate::println!("[sched] ERROR: Max tasks reached!");
+            return;
+        }
+        
+        let slot = TASK_COUNT;
+        let id = NEXT_PID;
+        NEXT_PID += 1;
+        
+        // Allocate 16KB stack
+        let stack_layout = core::alloc::Layout::from_size_align(16 * 1024, 16).unwrap();
+        let stack_ptr = alloc::alloc::alloc(stack_layout);
+        let mut stack_top = stack_ptr.add(16 * 1024) as u64;
+        
+        // Setup initial context on stack
+        // We need space for 12 callee-saved registers (x19-x30)
+        // We'll use x19 to pass the entry point to our trampoline
         let sp = (stack_top as *mut u64).sub(12);
         
         // x19 = entry point (will be read by trampoline)
@@ -91,22 +124,19 @@ pub fn spawn_named(entry: extern "C" fn(), name: &str, priority: Priority) {
         *sp.add(11) = task_trampoline as *const () as u64;
         
         stack_top = sp as u64;
+        
+        crate::println!("[sched] Spawning Task {} '{}' (Entry: {:#x}, Priority: {:?})", 
+                        id, name, entry as u64, priority);
+        
+        TASKS[slot].id = id;
+        TASKS[slot].stack_top = stack_top;
+        TASKS[slot].state = TaskState::Ready;
+        TASKS[slot].priority = priority;
+        TASKS[slot].set_name(name);
+        
+        TASK_COUNT += 1;
     }
-    
-    crate::println!("[sched] Spawning Task {} '{}' (Entry: {:#x}, Priority: {:?})", 
-                    id, name, entry as u64, priority);
-    
-    let task = Task {
-        id,
-        name: String::from(name),
-        stack_top,
-        state: TaskState::Ready,
-        priority,
-    };
-    
-    unsafe { TASKS.push(task) };
 }
-
 
 /// Trampoline for new tasks - enables interrupts then jumps to the real entry
 #[no_mangle]
@@ -131,7 +161,7 @@ extern "C" fn task_trampoline() {
 pub fn exit_current_task() -> ! {
     unsafe {
         let task = &TASKS[CURRENT_TASK];
-        crate::println!("[sched] Task {} '{}' exiting.", task.id, task.name);
+        crate::println!("[sched] Task {} '{}' exiting.", task.id, task.get_name());
         TASKS[CURRENT_TASK].state = TaskState::Dead;
         schedule();
         loop { aprk_arch_arm64::cpu::halt(); }
@@ -145,7 +175,7 @@ pub fn current_task_id() -> usize {
 
 /// Get the number of tasks
 pub fn task_count() -> usize {
-    unsafe { TASKS.len() }
+    unsafe { TASK_COUNT }
 }
 
 /// Block the current task (e.g., waiting for I/O)
@@ -159,47 +189,50 @@ pub fn block_current_task() {
 /// Wake up a blocked task by ID
 pub fn wake_task(pid: usize) {
     unsafe {
-        for task in TASKS.iter_mut() {
-            if task.id == pid && task.state == TaskState::Blocked {
-                task.state = TaskState::Ready;
+        for i in 0..TASK_COUNT {
+            if TASKS[i].id == pid && TASKS[i].state == TaskState::Blocked {
+                TASKS[i].state = TaskState::Ready;
                 return;
             }
         }
     }
 }
 
-/// Round-robin scheduler with priority awareness
+/// Round-robin scheduler
 pub fn schedule() {
     unsafe {
-        if TASKS.len() <= 1 { return; }
+        let count = TASK_COUNT;
+        if count <= 1 { return; }
         
         let current_idx = CURRENT_TASK;
-        let num_tasks = TASKS.len();
         
         // Find next runnable task (Ready state, not Dead or Blocked)
-        let mut next_idx = (current_idx + 1) % num_tasks;
+        let mut next_idx = current_idx;
         let mut found = false;
         
-        for _ in 0..num_tasks {
-            if next_idx != current_idx {
-                let state = TASKS[next_idx].state;
-                if state == TaskState::Ready || state == TaskState::Running {
-                    found = true;
-                    break;
-                }
+        for i in 1..=count {
+            let check_idx = (current_idx + i) % count;
+            let state = TASKS[check_idx].state;
+            if state == TaskState::Ready || (check_idx != current_idx && state == TaskState::Running) {
+                next_idx = check_idx;
+                found = true;
+                break;
             }
-            next_idx = (next_idx + 1) % num_tasks;
         }
         
         if !found {
-            // Check if current task is still runnable
+            // No other runnable tasks - stay on current if it's runnable
             let current_state = TASKS[current_idx].state;
             if current_state == TaskState::Dead || current_state == TaskState::Blocked {
-                // No runnable tasks and current is dead/blocked
                 crate::println!("[sched] No runnable tasks! Halting.");
                 loop { aprk_arch_arm64::cpu::halt(); }
             }
-            return; // Stay on current task
+            return;
+        }
+        
+        // Don't switch to self
+        if next_idx == current_idx {
+            return;
         }
         
         // Mark old task as Ready (if it was Running)
@@ -210,10 +243,6 @@ pub fn schedule() {
         // Switch to new task
         TASKS[next_idx].state = TaskState::Running;
         CURRENT_TASK = next_idx;
-        
-        // Debug: context switch (commented to reduce noise)
-        // crate::println!("[sched] Switch: {} -> {} ('{}')", 
-        //                 current_idx, next_idx, TASKS[next_idx].name);
         
         // Perform Context Switch
         let prev_sp = &mut TASKS[current_idx].stack_top as *mut u64;

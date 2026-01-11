@@ -21,7 +21,9 @@ const MT_NORMAL_NC: u64 = 1;
 const MT_NORMAL: u64 = 2; // Cacheable
 
 // Access Permissions
+// Access Permissions
 const AP_RW_EL1: u64 = 0 << 6; // Read-Write EL1 only
+const AP_RW_EL1_EL0: u64 = 1 << 6; // Read-Write EL1 & EL0
 
 // Shareability
 const SH_INNER: u64 = 3 << 8;
@@ -35,6 +37,9 @@ struct Table {
 // Statically allocate page tables.
 #[no_mangle]
 static mut L1_TABLE: Table = Table { entries: [0; ENTRIES_COUNT] };
+
+#[no_mangle]
+static mut L2_TABLE: Table = Table { entries: [0; ENTRIES_COUNT] };
 
 /// Initialize the MMU.
 /// 
@@ -63,15 +68,34 @@ pub unsafe fn init() {
         AP_RW_EL1 |
         AF;
 
-    // Entry 1: 1GB-2GB (RAM at 0x4000_0000)
+    let l2_table_ptr = core::ptr::addr_of_mut!(L2_TABLE);
+
+    // Entry 1: 1GB-2GB (RAM at 0x4000_0000) - Point to L2 Table
+    // Descriptor: 0x4000_0000 (ignored for Table?) -> Addr of L2 Table | Valid | Table
     (*l1_table_ptr).entries[1] = 
-        0x4000_0000 | 
+        (l2_table_ptr as u64) | // Point to next level table
         PROT_VALID | 
-        PROT_BLOCK | 
-        (MT_NORMAL << 2) | 
-        AP_RW_EL1 |
-        SH_INNER | 
-        AF;
+        (1 << 1); // 1 = Table Descriptor (for L0/L1/L2), 0 = Block
+
+    // Populate L2 Table (512 entries, each 2MB)
+    // Covers 0x4000_0000 to 0x7FFF_FFFF (1GB)
+    for i in 0..ENTRIES_COUNT {
+        let addr = 0x4000_0000 + (i as u64 * 0x200000); // 2MB = 0x200000
+        
+        // Permissions:
+        // First 1 entry (2MB) -> Kernel Code/Data -> EL1 Only
+        // Rest (User Code + Heap) -> EL0 Accessible
+        let ap = if i < 1 { AP_RW_EL1 } else { AP_RW_EL1_EL0 };
+        
+        (*l2_table_ptr).entries[i] = 
+            addr |
+            PROT_VALID | 
+            PROT_BLOCK | // L2 Block = 2MB
+            (MT_NORMAL << 2) | 
+            ap |
+            SH_INNER | 
+            AF;
+    }
 
     // -------------------------------------------------------------------------
     // 3. Setup TCR_EL1 (Translation Control Register)
@@ -102,7 +126,12 @@ pub unsafe fn init() {
 
     let mut sctlr: u64;
     asm!("mrs {}, sctlr_el1", out(reg) sctlr);
+    
+    // crate::println!("[mmu] SCTLR before: {:#x}", sctlr);
+    
     sctlr |= 1 | (1 << 2) | (1 << 12); // M, C, I bits
+    sctlr &= !(1 << 19); // Clear WXN (Write Execute Never) to allow Executing RW pages (Phase 2 MVP)
+    
     asm!("msr sctlr_el1, {}", in(reg) sctlr);
     
     asm!("isb");

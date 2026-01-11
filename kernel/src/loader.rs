@@ -117,6 +117,9 @@ pub unsafe fn load_elf(data: &[u8]) -> Option<u64> {
                 let bss_size = mem_size - file_size;
                 ptr::write_bytes(bss_dest, 0, bss_size);
             }
+            
+            // 3. Clean D-Cache for this segment to ensure visibility to I-Cache
+            cpu::clean_dcache_range(dest as usize, mem_size);
         }
     }
 

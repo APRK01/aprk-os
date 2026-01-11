@@ -11,14 +11,18 @@
 .global context_switch
 
 context_switch:
-    // 1. Save Callee-Saved Registers (x19-x30)
-    sub     sp, sp, #96
+    // 1. Save Callee-Saved Registers (x19-x30) + SP_EL0
+    sub     sp, sp, #112
     stp     x19, x20, [sp, #16 * 0]
     stp     x21, x22, [sp, #16 * 1]
     stp     x23, x24, [sp, #16 * 2]
     stp     x25, x26, [sp, #16 * 3]
     stp     x27, x28, [sp, #16 * 4]
     stp     x29, x30, [sp, #16 * 5]  // x29=FP, x30=LR
+
+    // Save SP_EL0
+    mrs     x10, sp_el0
+    str     x10, [sp, #16 * 6]
 
     // 2. Save current SP to *x0
     mov     x19, sp
@@ -27,14 +31,19 @@ context_switch:
     // 3. Load next SP from x1
     mov     sp, x1
 
-    // 4. Restore Callee-Saved Registers
+    // 4. Restore Callee-Saved Registers + SP_EL0
     ldp     x19, x20, [sp, #16 * 0]
     ldp     x21, x22, [sp, #16 * 1]
     ldp     x23, x24, [sp, #16 * 2]
     ldp     x25, x26, [sp, #16 * 3]
     ldp     x27, x28, [sp, #16 * 4]
     ldp     x29, x30, [sp, #16 * 5]
-    add     sp, sp, #96
+    
+    // Restore SP_EL0
+    ldr     x10, [sp, #16 * 6]
+    msr     sp_el0, x10
+
+    add     sp, sp, #112
 
     // 5. Return (to the address in x30/LR of the new task)
     ret

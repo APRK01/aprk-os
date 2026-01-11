@@ -22,6 +22,36 @@ _start:
     cbnz    x0, halt                // If not CPU 0, halt
 
     // -------------------------------------------------------------------------
+    // Step 1.5: Switch from EL2 to EL1 (if necessary)
+    // -------------------------------------------------------------------------
+    // QEMU starts in EL2 by default. We want to run the kernel in EL1.
+    mrs     x0, CurrentEL
+    and     x0, x0, #0b1100         // Get EL bits
+    cmp     x0, #0b1000             // Check if EL2 (0x8)
+    b.ne    el1_entry               // If not EL2, assume EL1 and continue
+
+    // We are in EL2. Configure EL1 for AArch64 and drop.
+    
+    // HCR_EL2: RW (Bit 31) = 1 (EL1 is AArch64)
+    mov     x0, #(1 << 31)
+    msr     hcr_el2, x0
+    
+    // SPSR_EL2: Mask Attributes (D,A,I,F) | Mode EL1h (0b0101)
+    // 0x3C5 = 0011 1100 0101
+    // D=1, A=1, I=1, F=1, M=0101 (EL1h)
+    mov     x0, #0x3c5
+    msr     spsr_el2, x0
+    
+    // ELR_EL2: Return address is 'el1_entry'
+    adr     x0, el1_entry
+    msr     elr_el2, x0
+    
+    // Return to EL1
+    eret
+
+el1_entry:
+
+    // -------------------------------------------------------------------------
     // Step 2: Set up the stack pointer
     // -------------------------------------------------------------------------
     // The stack grows downward, so we point to the top of our stack area.
@@ -46,6 +76,15 @@ bss_clear_loop:
     b       bss_clear_loop          // Repeat
 
 bss_clear_done:
+    // -------------------------------------------------------------------------
+    // Step 3.5: Enable FPU/SIMD (Required for Rust and Context Switch)
+    // -------------------------------------------------------------------------
+    // CPACR_EL1 bits [21:20] must be set to 0b11 to enable FP/SIMD at EL0 and EL1.
+    // Otherwise, ANY access to q0-q31 (context save or memcpy) traps!
+    mov     x0, #(3 << 20)
+    msr     cpacr_el1, x0
+    isb                             // Instruction Synchronization Barrier
+
     // -------------------------------------------------------------------------
     // Step 4: Jump to Rust kernel entry point
     // -------------------------------------------------------------------------

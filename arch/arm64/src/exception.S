@@ -40,9 +40,9 @@ exception_vector_table:
     // Lower EL using AArch64 (User Mode 64-bit)
     // -------------------------------------------------------------------------
     .align 7
-    b       unhandled_exception
+    b       sync_handler_entry      // Synchronous (SVC) from Lower EL (EL0)
     .align 7
-    b       unhandled_exception
+    b       irq_handler_entry       // IRQ (Timer) from Lower EL (EL0)
     .align 7
     b       unhandled_exception
     .align 7
@@ -65,8 +65,10 @@ exception_vector_table:
 // =============================================================================
 
 // Save general purpose registers (x0-x30)
+// Save general purpose registers (x0-x30)
+// Save general purpose registers (x0-x30)
 .macro SAVE_CONTEXT
-    sub     sp, sp, #256
+    sub     sp, sp, #784
     stp     x0, x1, [sp, #16 * 0]
     stp     x2, x3, [sp, #16 * 1]
     stp     x4, x5, [sp, #16 * 2]
@@ -82,11 +84,63 @@ exception_vector_table:
     stp     x24, x25, [sp, #16 * 12]
     stp     x26, x27, [sp, #16 * 13]
     stp     x28, x29, [sp, #16 * 14]
-    str     x30, [sp, #16 * 15]
+    
+    // Save x30 (LR) and ELR_EL1
+    mrs     x9, elr_el1
+    stp     x30, x9, [sp, #16 * 15]
+
+    // Save SPSR_EL1 and Padding (using xzr)
+    mrs     x10, spsr_el1
+    stp     x10, xzr, [sp, #16 * 16]
+
+    // Save SIMD/FP registers (q0-q31) at offset 272 (16*17)
+    stp     q0, q1, [sp, #272 + 32 * 0]
+    stp     q2, q3, [sp, #272 + 32 * 1]
+    stp     q4, q5, [sp, #272 + 32 * 2]
+    stp     q6, q7, [sp, #272 + 32 * 3]
+    stp     q8, q9, [sp, #272 + 32 * 4]
+    stp     q10, q11, [sp, #272 + 32 * 5]
+    stp     q12, q13, [sp, #272 + 32 * 6]
+    stp     q14, q15, [sp, #272 + 32 * 7]
+    stp     q16, q17, [sp, #272 + 32 * 8]
+    stp     q18, q19, [sp, #272 + 32 * 9]
+    stp     q20, q21, [sp, #272 + 32 * 10]
+    stp     q22, q23, [sp, #272 + 32 * 11]
+    stp     q24, q25, [sp, #272 + 32 * 12]
+    stp     q26, q27, [sp, #272 + 32 * 13]
+    stp     q28, q29, [sp, #272 + 32 * 14]
+    stp     q30, q31, [sp, #272 + 32 * 15]
 .endm
 
 // Restore general purpose registers
 .macro RESTORE_CONTEXT
+    // Restore SIMD/FP registers (q0-q31)
+    ldp     q0, q1, [sp, #272 + 32 * 0]
+    ldp     q2, q3, [sp, #272 + 32 * 1]
+    ldp     q4, q5, [sp, #272 + 32 * 2]
+    ldp     q6, q7, [sp, #272 + 32 * 3]
+    ldp     q8, q9, [sp, #272 + 32 * 4]
+    ldp     q10, q11, [sp, #272 + 32 * 5]
+    ldp     q12, q13, [sp, #272 + 32 * 6]
+    ldp     q14, q15, [sp, #272 + 32 * 7]
+    ldp     q16, q17, [sp, #272 + 32 * 8]
+    ldp     q18, q19, [sp, #272 + 32 * 9]
+    ldp     q20, q21, [sp, #272 + 32 * 10]
+    ldp     q22, q23, [sp, #272 + 32 * 11]
+    ldp     q24, q25, [sp, #272 + 32 * 12]
+    ldp     q26, q27, [sp, #272 + 32 * 13]
+    ldp     q28, q29, [sp, #272 + 32 * 14]
+    ldp     q30, q31, [sp, #272 + 32 * 15]
+
+    // Restore SPSR_EL1
+    ldr     x10, [sp, #16 * 16]
+    msr     spsr_el1, x10
+
+    // Restore x30 and ELR_EL1
+    ldp     x30, x9, [sp, #16 * 15]
+    msr     elr_el1, x9
+
+    // Restore GP registers
     ldp     x0, x1, [sp, #16 * 0]
     ldp     x2, x3, [sp, #16 * 1]
     ldp     x4, x5, [sp, #16 * 2]
@@ -102,8 +156,8 @@ exception_vector_table:
     ldp     x24, x25, [sp, #16 * 12]
     ldp     x26, x27, [sp, #16 * 13]
     ldp     x28, x29, [sp, #16 * 14]
-    ldr     x30, [sp, #16 * 15]
-    add     sp, sp, #256
+    
+    add     sp, sp, #784
 .endm
 
 // =============================================================================

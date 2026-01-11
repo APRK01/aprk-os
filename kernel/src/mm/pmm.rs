@@ -37,6 +37,7 @@ pub fn init(kernel_end: usize) {
 
 /// Allocate a single physical page.
 /// Returns the physical address.
+#[allow(dead_code)]
 pub fn alloc_page() -> Option<usize> {
     let start = ALLOC_START.load(Ordering::Relaxed);
     
@@ -53,6 +54,7 @@ pub fn alloc_page() -> Option<usize> {
 }
 
 /// Free a physical page.
+#[allow(dead_code)]
 pub fn free_page(phys_addr: usize) {
     if phys_addr < RAM_START || phys_addr >= RAM_START + RAM_SIZE {
         return;
@@ -73,10 +75,12 @@ unsafe fn set_bit(idx: usize) {
     BITMAP[idx / 64] |= 1 << (idx % 64);
 }
 
+#[allow(dead_code)]
 unsafe fn clear_bit(idx: usize) {
     BITMAP[idx / 64] &= !(1 << (idx % 64));
 }
 
+#[allow(dead_code)]
 unsafe fn is_bit_set(idx: usize) -> bool {
     (BITMAP[idx / 64] & (1 << (idx % 64))) != 0
 }

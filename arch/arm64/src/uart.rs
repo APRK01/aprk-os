@@ -56,13 +56,7 @@ mod flags {
     pub const RXFE: u32 = 1 << 4;
 }
 
-/// Interrupt Mask Set/Clear Register bits
-mod imsc {
-    /// Receive Interrupt Mask (RXIM) - bit 4
-    pub const RXIM: u32 = 1 << 4;
-    /// Receive Timeout Interrupt Mask (RTIM) - bit 6
-    pub const RTIM: u32 = 1 << 6;
-}
+
 
 /// Line Control Register bits
 mod lcr {
@@ -252,14 +246,7 @@ impl RingBuffer {
         }
     }
 
-    fn pop(&mut self) -> Option<u8> {
-        if self.head == self.tail {
-            return None;
-        }
-        let byte = self.data[self.tail];
-        self.tail = (self.tail + 1) % 128;
-        Some(byte)
-    }
+
 }
 
 static RX_BUFFER: Mutex<RingBuffer> = Mutex::new(RingBuffer::new());

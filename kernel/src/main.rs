@@ -57,6 +57,8 @@ pub extern "C" fn kernel_main() -> ! {
     // This now includes MMU, Exceptions, GIC, and Timer!
     arch::init();
     
+    println!("[kernel] Booted. Current EL: {}", arch::cpu::current_el());
+    
     // Initialize Memory Management (PMM + Heap)
     mm::init();
 
@@ -76,7 +78,7 @@ pub extern "C" fn kernel_main() -> ! {
     
     // Initialize Scheduler
     sched::init();
-    sched::spawn_named(shell::run, "shell", sched::Priority::High);
+    sched::spawn_named(shell::run, "shell", sched::Priority::Normal);
     // sched::spawn(task_two);
     
     // Test Heap
@@ -86,8 +88,15 @@ pub extern "C" fn kernel_main() -> ! {
     v.push(3);
     println!("[kernel] Heap Test: Vec = {:?}", v);
     
+    // Enable preemptive scheduling now that everything is set up
+    sched::enable();
+    println!("[kernel] Preemptive scheduler enabled.");
+    
+    // Switch to the shell immediately
+    sched::schedule();
+    
     println!();
-    println!("[kernel] Waiting for timer interrupts... (Press Ctrl+A, X to exit)");
+    println!("[kernel] System ready. (Press Ctrl+A, X to exit QEMU)");
 
     // Enter main loop - we just wait for interrupts now
     loop {
@@ -97,10 +106,10 @@ pub extern "C" fn kernel_main() -> ! {
 }
 
 
-// Timer Callback
+// Timer Callback - called by IRQ handler
 #[no_mangle]
 pub extern "Rust" fn kernel_tick() {
-    sched::schedule();
+    sched::tick();
 }
 
 // Syscall Handler
@@ -109,20 +118,27 @@ pub extern "Rust" fn kernel_tick() {
 //   1: exit()          - Terminate current process
 //   2: getpid()        - Get current process ID (returned in x0)
 //   3: yield()         - Voluntarily yield CPU to scheduler
-//   4: sleep(ms)       - Sleep for specified milliseconds (NYI, just yields)
+//   4: sleep(ms)       - Sleep for specified milliseconds
+//   5: alloc(size, align) -> ptr
+//   6: dealloc(ptr, size, align)
 #[no_mangle]
-pub extern "C" fn kernel_syscall_handler(id: u64, arg0: u64, _arg1: u64) -> u64 {
+pub extern "C" fn kernel_syscall_handler(id: u64, arg0: u64, arg1: u64, arg2: u64) -> u64 {
     match id {
         0 => { // print(ptr, len)
             let ptr = arg0 as *const u8;
-            let len = _arg1 as usize;
-            // println!("[syscall] print ptr={:#x} len={}", arg0, len); // Debug
-            // Validate pointer? Assumed valid for now (Shared address space)
-            let s = unsafe { 
-                let slice = core::slice::from_raw_parts(ptr, len);
-                core::str::from_utf8(slice).unwrap_or("<?>")
-            };
-            print!("{}", s);
+            let len = arg1 as usize;
+            
+            // println!("[syscall] print(ptr={:#p}, len={})", ptr, len);
+
+            if !ptr.is_null() && len > 0 {
+                // Validate pointer? Assumed valid for now (Shared address space)
+                // We use slice::from_raw_parts only if check passes
+                let s = unsafe { 
+                    let slice = core::slice::from_raw_parts(ptr, len);
+                    core::str::from_utf8(slice).unwrap_or("<?>")
+                };
+                print!("{}", s);
+            }
             0 // Success
         },
         1 => { // exit()
@@ -140,6 +156,39 @@ pub extern "C" fn kernel_syscall_handler(id: u64, arg0: u64, _arg1: u64) -> u64 
             sched::schedule();
             0
         },
+        5 => { // alloc(size, align)
+            let size = arg0 as usize;
+            let align = arg1 as usize;
+            println!("[syscall] ALLOC(size={}, align={})", size, align);
+            
+            match core::alloc::Layout::from_size_align(size, align) {
+                Ok(layout) => {
+                    let ptr = unsafe { alloc::alloc::alloc(layout) as u64 };
+                    println!("[syscall] -> Ptr: {:#x}", ptr);
+                    if ptr == 0 {
+                        println!("[syscall] Kernel Allocator returned NULL!");
+                        0
+                    } else {
+                        ptr
+                    }
+                },
+                Err(e) => {
+                     println!("[syscall] Layout Error: {:?}", e);
+                     0
+                }
+            }
+        },
+        6 => { // dealloc(ptr, size, align)
+            let ptr = arg0 as *mut u8;
+            let size = arg1 as usize;
+            let align = arg2 as usize;
+            if let Ok(layout) = core::alloc::Layout::from_size_align(size, align) {
+                unsafe { alloc::alloc::dealloc(ptr, layout); }
+                0
+            } else {
+                1 // Error
+            }
+        },
         _ => {
             println!("[syscall] Unknown syscall: {}", id);
             u64::MAX // Error
@@ -154,16 +203,24 @@ pub extern "C" fn kernel_syscall_handler(id: u64, arg0: u64, _arg1: u64) -> u64 
 /// Print the APRK OS boot banner.
 fn print_banner() {
     println!();
+    // Cyan color for logo
+    print!("\x1b[1;36m");
     println!(r"    _    ____  ____  _  __   ___  ____  ");
     println!(r"   / \  |  _ \|  _ \| |/ /  / _ \/ ___| ");
     println!(r"  / _ \ | |_) | |_) | ' /  | | | \___ \ ");
     println!(r" / ___ \|  __/|  _ <| . \  | |_| |___) |");
     println!(r"/_/   \_\_|   |_| \_\_|\_\  \___/|____/ ");
+    print!("\x1b[0m");
     println!();
+    // Yellow for version
+    print!("\x1b[1;33m");
     println!("APRK OS v{} \"{}\"", VERSION, CODENAME);
+    print!("\x1b[0m");
     println!("A modern operating system kernel for ARM64");
     println!();
-    println!("============================================================");
+    print!("\x1b[90m");
+    println!("════════════════════════════════════════════════════════════════");
+    print!("\x1b[0m");
 }
 
 /// Print system information.

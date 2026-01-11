@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(alloc_error_handler)]
 
 use core::panic::PanicInfo;
 
@@ -101,6 +102,59 @@ impl core::fmt::Write for PrintWriter {
     }
 }
 
+// Allocator implementation
+use core::alloc::{GlobalAlloc, Layout};
+
+pub struct UserAllocator;
+
+unsafe impl GlobalAlloc for UserAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let size = layout.size();
+        let align = layout.align();
+        let ptr: *mut u8;
+        core::arch::asm!(
+            "mov x0, {size}",
+            "mov x1, {align}",
+            "mov x8, #5", // Syscall ID: ALLOC
+            "svc #0",
+            // We use latout("x0") to capture the return value directly
+            // from x0, which is preserved by clobber_abi("C") for return usage?
+            // Actually, clobber_abi marks x0 as clobbered output.
+            // So we just take it from x0 as an output.
+            size = in(reg) size,
+            align = in(reg) align,
+            lateout("x0") ptr,
+            clobber_abi("C")
+        );
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let size = layout.size();
+        let align = layout.align();
+        core::arch::asm!(
+            "mov x0, {ptr}",
+            "mov x1, {size}",
+            "mov x2, {align}",
+            "mov x8, #6", // Syscall ID: DEALLOC
+            "svc #0",
+            ptr = in(reg) ptr,
+            size = in(reg) size,
+            align = in(reg) align,
+            clobber_abi("C")
+        );
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: UserAllocator = UserAllocator;
+
+#[alloc_error_handler]
+fn alloc_error(_layout: Layout) -> ! {
+    print("User Allocation Error: Out of Memory\n");
+    exit();
+}
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     print("PANIC in user mode: ");
@@ -110,6 +164,6 @@ fn panic(info: &PanicInfo) -> ! {
         // Can't easily print numbers without alloc, so just show the message
     }
     print("\n");
-    exit()
+    loop { unsafe { core::arch::asm!("wfe") }; }
 }
 

@@ -1,41 +1,65 @@
+// =============================================================================
+// APRK OS - Interactive Shell (Premium)
+// =============================================================================
+
 use aprk_arch_arm64::{print, println, uart};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 pub extern "C" fn run() {
-    println!("\n[shell] Welcome to APRK OS Shell!");
-    println!("Type 'help' for commands.");
-    print!("> ");
-    
-    let mut buffer = String::new();
-    
     unsafe { aprk_arch_arm64::cpu::enable_interrupts(); }
 
+    print!("\x1b[2J\x1b[1;1H");
+    println!();
+    println!("╔═══════════════════════════════════════════════════════════════╗");
+    println!("║                    APRK OS Shell v1.0                         ║");
+    println!("╚═══════════════════════════════════════════════════════════════╝");
+    println!();
+    println!("Welcome! Type 'help' for available commands.");
+    println!();
+    print_prompt();
+
+    let mut buffer = String::new();
+    let mut history: Vec<String> = Vec::new();
+
     loop {
+        // Use if-let to poll.
         if let Some(c) = uart::get_char() {
-            if c == b'\n' || c == b'\r' {
-                println!(); // Newline
-                execute_command(buffer.trim());
-                buffer.clear();
-                print!("> ");
-            } else if c == 8 || c == 127 {
-                // Backspace
-                if !buffer.is_empty() {
-                     buffer.pop();
-                     // Visual backspace: Move back, overwrite with space, move back
-                     print!("\x08 \x08");
+            match c {
+                b'\n' | b'\r' => {
+                    println!();
+                    let cmd = buffer.trim().to_string();
+                    if !cmd.is_empty() {
+                         // Add to history
+                         if history.len() >= 10 { history.remove(0); }
+                         history.push(cmd.clone());
+                         execute_command(&cmd);
+                    }
+                    buffer.clear();
+                    print_prompt();
                 }
-            } else {
-                buffer.push(c as char);
-                // Echo character
-                print!("{}", c as char);
+                8 | 127 => {
+                    if !buffer.is_empty() {
+                         buffer.pop();
+                         print!("\x08 \x08");
+                    }
+                }
+                _ => {
+                    buffer.push(c as char);
+                    print!("{}", c as char);
+                }
             }
         } else {
-            // No input? Spin loop or yield?
-            // Just spin loop for now.
-             for _ in 0..10_000 { unsafe { core::arch::asm!("nop") } }
+             // Yield to scheduler if no input
+             crate::sched::schedule();
+             // Hint to CPU we are in a busy-wait loop (optional, but good)
+             core::hint::spin_loop();
         }
     }
+}
+
+fn print_prompt() {
+    print!("\x1b[1;32mroot@aprk\x1b[0m:\x1b[1;34m/\x1b[0m$ ");
 }
 
 fn execute_command(cmd_line: &str) {
@@ -47,59 +71,48 @@ fn execute_command(cmd_line: &str) {
     let args: Vec<&str> = parts.collect();
 
     match cmd {
-        "help" => {
-             println!("Available commands:");
-             println!("  help           - Show this menu");
-             println!("  clear          - Clear screen");
-             println!("  whoami         - Print user info");
-             println!("  uname          - Print system info");
-             println!("  ls             - List files");
-             println!("  cat <file>     - Print file content");
-        },
+        "help" => show_help(),
+        "fetch" | "neofetch" => show_neofetch(),
         "clear" => print!("\x1b[2J\x1b[1;1H"),
-        "whoami" => println!("root (KERNEL_GOD_MODE)"),
-        "uname" => println!("APRK OS v0.0.1 aarch64"),
+        "whoami" => println!("root"),
+        "uname" => println!("APRK OS 1.0.0 Genesis aarch64"),
         "ls" => {
+            println!();
             crate::fs::ls(crate::fs::RAMDISK);
-        },
-        "cat" => {
-            if let Some(filename) = args.get(0) {
-                if let Some(file) = crate::fs::get_file(crate::fs::RAMDISK, filename) {
-                    if file.is_dir {
-                         println!("Error: '{}' is a directory", filename);
-                    } else {
-                         // Print data as string (UTF-8 lossy)
-                         let content = core::str::from_utf8(file.data)
-                             .unwrap_or("<Binary Data>");
-                         println!("{}", content);
-                    }
-                } else {
-                    println!("Error: File '{}' not found", filename);
-                }
-            } else {
-                println!("Usage: cat <filename>");
-            }
+            println!();
         },
         "exec" => {
-            if let Some(filename) = args.get(0) {
-                if let Some(file) = crate::fs::get_file(crate::fs::RAMDISK, filename) {
+             if let Some(filename) = args.get(0) {
+                 if let Some(file) = crate::fs::get_file(crate::fs::RAMDISK, filename) {
                      println!("Loading '{}'...", filename);
                      unsafe {
                          if let Some(entry) = crate::loader::load_elf(file.data) {
-                             println!("Spawning process at {:#x}...", entry);
-                             let entry_fn: extern "C" fn() = core::mem::transmute(entry);
-                             crate::sched::spawn_named(entry_fn, filename, crate::sched::Priority::Normal);
-                         } else {
-                             println!("Failed to load ELF.");
+                             // entry is u64 address.
+                             crate::sched::spawn_user(entry, filename);
                          }
                      }
-                } else {
-                    println!("Error: File '{}' not found", filename);
-                }
-            } else {
-                println!("Usage: exec <filename>");
-            }
+                 } else {
+                     println!("Not found");
+                 }
+             }
         },
-        _ => println!("Unknown command: '{}'", cmd),
+
+        _ => println!("Unknown command"),
     }
+}
+
+fn show_neofetch() {
+    println!();
+    print!("\x1b[1;36m");
+    println!(r"   __  __ ");
+    println!(r"   / \   OS:      APRK OS (Genesis)");
+    println!(r"  / _ \  Kernel:  v1.0.0");
+    println!(r" / ___ \ Arch:    ARM64 (AArch64)");
+    println!(r"/_/   \_\Shell:   APRK Premium Shell");
+    print!("\x1b[0m");
+    println!();
+}
+
+fn show_help() {
+    println!("\nAvailable commands: fetch, ls, exec, help, clear");
 }

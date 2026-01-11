@@ -10,7 +10,7 @@ use crate::timer::Timer;
 use core::time::Duration;
 
 extern "C" {
-    fn kernel_syscall_handler(id: u64, arg0: u64, arg1: u64);
+    fn kernel_syscall_handler(id: u64, arg0: u64, arg1: u64, arg2: u64) -> u64;
 }
 
 /// Initialize exceptions.
@@ -45,7 +45,8 @@ pub struct TrapFrame {
     pub x24: u64,  pub x25: u64,  // [sp + 192]
     pub x26: u64,  pub x27: u64,  // [sp + 208]
     pub x28: u64,  pub x29: u64,  // [sp + 224]
-    pub x30: u64,                 // [sp + 240] (LR)
+    pub x30: u64,  pub elr: u64,  // [sp + 240] (LR, ELR)
+    pub spsr: u64, pub _pad: u64, // [sp + 256] (SPSR, Padding)
 }
 
 /// Handler for Synchronous Exceptions (SVC, Data Abort, etc.).
@@ -61,34 +62,45 @@ pub extern "C" fn handle_sync_exception(trap_frame: *mut TrapFrame) {
     
     let ec = (esr >> 26) & 0x3F;
 
+    let tf_debug = unsafe { &*trap_frame };
+    if ec != 0x15 {
+         crate::println!("[except] SYNC EC={:#x} ELR={:#x}", ec, tf_debug.elr);
+    } else {
+         // crate::println!("[except] SVC at ELR={:#x}", tf_debug.elr);
+    }
+
     // EC = 0x15 is SVC (System Call) from AArch64
     if ec == 0x15 {
         // Read syscall arguments from the saved trap frame
-        let tf = unsafe { &*trap_frame };
+        let tf = unsafe { &mut *trap_frame };
         let id = tf.x8;    // Syscall number in x8
         let arg0 = tf.x0;  // First argument in x0
         let arg1 = tf.x1;  // Second argument in x1
+        let arg2 = tf.x2;  // Third argument in x2
         
         unsafe {
-            kernel_syscall_handler(id, arg0, arg1);
+            let ret = kernel_syscall_handler(id, arg0, arg1, arg2);
+            // Write return value back to x0
+            tf.x0 = ret;
 
             // Advance ELR_EL1 by 4 bytes to skip the SVC instruction
-            let mut elr: u64;
-            core::arch::asm!("mrs {0}, elr_el1", out(reg) elr);
-            elr += 4;
-            core::arch::asm!("msr elr_el1, {0}", in(reg) elr);
+            // We modify the saved ELR in the trap frame, which will be restored by RESTORE_CONTEXT
+            tf.elr += 4;
         }
         return; // Return to user
     }
     
     let elr: u64;
+    let far: u64;
     unsafe {
         core::arch::asm!("mrs {}, elr_el1", out(reg) elr);
+        core::arch::asm!("mrs {}, far_el1", out(reg) far);
     }
     
     println!("\n!!! SYNCHRONOUS EXCEPTION !!!");
     println!("ESR_EL1: {:#018x}", esr);
     println!("ELR_EL1: {:#018x}", elr);
+    println!("FAR_EL1: {:#018x}", far);
     println!("System halted.");
     
     loop { core::hint::spin_loop(); }
@@ -107,7 +119,7 @@ pub extern "C" fn handle_irq_exception() {
             // Timer Interrupt
             // CRITICAL: Rearm timer and EOI BEFORE kernel_tick because 
             // kernel_tick may context switch and never return!
-            Timer::set_next_tick(Duration::from_millis(500)); // 500ms timer tick
+            Timer::set_next_tick(Duration::from_millis(50)); // 50ms timer tick
             Gic::end_interrupt(iar);
             
             extern "Rust" { fn kernel_tick(); }

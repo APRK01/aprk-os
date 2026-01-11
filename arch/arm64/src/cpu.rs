@@ -69,3 +69,18 @@ pub unsafe fn flush_instruction_cache() {
         "isb"
     );
 }
+
+/// Clean Data Cache by MVA to Point of Unification.
+/// Ensures that data written to memory is visible to instruction cache.
+pub unsafe fn clean_dcache_range(start: usize, len: usize) {
+    let line_size = 64; // Safely assume 64 bytes for Cortex-A72/Virt
+    let end = start + len;
+    let mut addr = start & !(line_size - 1);
+    
+    while addr < end {
+        core::arch::asm!("dc cvau, {}", in(reg) addr);
+        addr += line_size;
+    }
+    
+    core::arch::asm!("dsb ish");
+}

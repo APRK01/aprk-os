@@ -5,8 +5,6 @@
 // Uses fixed-size arrays for stability during interrupt context.
 // =============================================================================
 
-use alloc::string::String;
-
 /// Maximum number of tasks supported
 const MAX_TASKS: usize = 16;
 

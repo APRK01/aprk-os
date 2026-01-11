@@ -6,7 +6,6 @@
 // =============================================================================
 
 use linked_list_allocator::LockedHeap;
-use super::pmm;
 
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();

@@ -4,7 +4,6 @@
 // Tracks usage of physical RAM using a bitmap.
 // =============================================================================
 
-use aprk_arch_arm64::cpu;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 // Memory Map for QEMU Virt

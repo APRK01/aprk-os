@@ -1,7 +1,5 @@
 use alloc::string::String;
-use alloc::vec::Vec;
-use alloc::string::ToString; // Need trait
-use core::fmt;
+use alloc::string::ToString;
 
 // Embed the RAM Disk
 // Use include_bytes! to load disk.tar from project root.

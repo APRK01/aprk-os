@@ -7,21 +7,33 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use crate::sched;
 
+fn print_fetch() {
+    let task_count = sched::task_count();
+    let current_el = aprk_arch_arm64::cpu::current_el();
+    
+    println!("\x1b[1;36m      /\\      \x1b[1;37m  root\x1b[0m@\x1b[1;36maprk\x1b[0m");
+    println!("\x1b[1;36m     /  \\     \x1b[1;37m  ---------\x1b[0m");
+    println!("\x1b[1;36m    /    \\    \x1b[1;36m  OS: \x1b[0mAPRK OS 0.0.1 (Genesis)");
+    println!("\x1b[1;36m   /  /\\  \\   \x1b[1;36m  Kernel: \x1b[0mAPRKv8-aarch64");
+    println!("\x1b[1;36m  /  /--\\  \\  \x1b[1;36m  EL: \x1b[0mEL{}", current_el);
+    println!("\x1b[1;36m / _/    \\_ \\ \x1b[1;36m  Tasks: \x1b[0m{}", task_count);
+    println!("\x1b[1;36m/_/        \\_\\\x1b[1;36m  Shell: \x1b[0maprksh v1.0");
+    println!();
+}
+
 pub extern "C" fn shell_task() {
     unsafe { aprk_arch_arm64::cpu::enable_interrupts(); }
 
-    print!("\x1b[2J\x1b[1;1H");
-    println!();
-    println!("╔═══════════════════════════════════════════════════════════════╗");
-    println!("║                    APRK OS Shell v1.0                         ║");
-    println!("╚═══════════════════════════════════════════════════════════════╝");
-    println!();
+    print!("\x1b[2J\x1b[1;1H"); // Clear screen
+    print_fetch();
     println!("Welcome! Type 'help' for available commands.");
     println!();
-    print_prompt();
 
     let mut buffer = String::new();
     let mut history: Vec<String> = Vec::new();
+
+    // Initial prompt
+    print_prompt();
 
     loop {
         if let Some(c) = uart::get_char() {
@@ -67,12 +79,16 @@ fn execute_command(cmd_line: &str) {
         "help" => {
             println!("Available commands:");
             println!("  help      - Show this help message");
+            println!("  fetch     - Show Arch-inspired system info");
             println!("  version   - Show OS version info");
             println!("  ls        - List files on disk");
             println!("  cat <f>   - Print file content");
             println!("  exec <f>  - Execute an ELF binary");
             println!("  ps        - List running tasks");
             println!("  clear     - Clear the screen");
+        },
+        "fetch" => {
+            print_fetch();
         },
         "version" => {
             println!("APRK OS v1.0 (FAT32 Enabled)");

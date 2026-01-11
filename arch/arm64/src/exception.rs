@@ -105,10 +105,14 @@ pub extern "C" fn handle_irq_exception() {
     match irq_id {
         27 | 30 => {
             // Timer Interrupt
+            // CRITICAL: Rearm timer and EOI BEFORE kernel_tick because 
+            // kernel_tick may context switch and never return!
+            Timer::set_next_tick(Duration::from_millis(500)); // 500ms timer tick
+            Gic::end_interrupt(iar);
+            
             extern "Rust" { fn kernel_tick(); }
             unsafe { kernel_tick(); }
-            
-            Timer::set_next_tick(Duration::from_millis(100)); // 100ms timer tick
+            return; // EOI already done above
         }
         33 => {
             // UART Interrupt
@@ -116,6 +120,7 @@ pub extern "C" fn handle_irq_exception() {
         }
         1023 => {
             // Spurious - ignore
+            return; // Don't EOI spurious
         }
         _ => {
             println!("[IRQ] Unknown interrupt ID: {}", irq_id);

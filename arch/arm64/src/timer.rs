@@ -37,7 +37,10 @@ impl Timer {
             asm!("mrs {}, cntfrq_el0", out(reg) freq);
         }
         
-        let ticks = freq * duration.as_secs(); // Simple seconds calculation
+        // Calculate ticks properly for any duration
+        // ticks = freq * seconds + freq * nanos / 1_000_000_000
+        let nanos = duration.as_nanos() as u64;
+        let ticks = (freq * nanos) / 1_000_000_000;
         
         // Write to CNTV_TVAL_EL0 (Timer Value Register)
         // This sets the countdown. When it reaches 0, interrupt fires.

@@ -211,8 +211,9 @@ pub fn schedule() {
         TASKS[next_idx].state = TaskState::Running;
         CURRENT_TASK = next_idx;
         
-        crate::println!("[sched] Switch: {} -> {} ('{}')", 
-                        current_idx, next_idx, TASKS[next_idx].name);
+        // Debug: context switch (commented to reduce noise)
+        // crate::println!("[sched] Switch: {} -> {} ('{}')", 
+        //                 current_idx, next_idx, TASKS[next_idx].name);
         
         // Perform Context Switch
         let prev_sp = &mut TASKS[current_idx].stack_top as *mut u64;

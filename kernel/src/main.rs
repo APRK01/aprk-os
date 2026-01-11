@@ -104,23 +104,46 @@ pub extern "Rust" fn kernel_tick() {
 }
 
 // Syscall Handler
+// Syscall Numbers:
+//   0: print(ptr, len) - Print string to console
+//   1: exit()          - Terminate current process
+//   2: getpid()        - Get current process ID (returned in x0)
+//   3: yield()         - Voluntarily yield CPU to scheduler
+//   4: sleep(ms)       - Sleep for specified milliseconds (NYI, just yields)
 #[no_mangle]
-pub extern "C" fn kernel_syscall_handler(id: u64, arg0: u64, arg1: u64) {
+pub extern "C" fn kernel_syscall_handler(id: u64, arg0: u64, _arg1: u64) -> u64 {
     match id {
-        0 => { // Print
+        0 => { // print(ptr, len)
             let ptr = arg0 as *const u8;
-            let len = arg1 as usize;
+            let len = _arg1 as usize;
+            // println!("[syscall] print ptr={:#x} len={}", arg0, len); // Debug
             // Validate pointer? Assumed valid for now (Shared address space)
             let s = unsafe { 
                 let slice = core::slice::from_raw_parts(ptr, len);
                 core::str::from_utf8(slice).unwrap_or("<?>")
             };
             print!("{}", s);
+            0 // Success
         },
-        1 => { // Exit
+        1 => { // exit()
             sched::exit_current_task();
         },
-        _ => println!("Unknown Syscall: {}", id),
+        2 => { // getpid()
+            sched::current_task_id() as u64
+        },
+        3 => { // yield()
+            sched::schedule();
+            0
+        },
+        4 => { // sleep(ms) - placeholder, just yields for now
+            // TODO: Implement proper timer-based sleep
+            sched::schedule();
+            0
+        },
+        _ => {
+            println!("[syscall] Unknown syscall: {}", id);
+            u64::MAX // Error
+        }
     }
 }
 

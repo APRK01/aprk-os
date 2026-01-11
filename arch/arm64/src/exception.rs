@@ -108,7 +108,7 @@ pub extern "C" fn handle_irq_exception() {
             extern "Rust" { fn kernel_tick(); }
             unsafe { kernel_tick(); }
             
-            Timer::set_next_tick(Duration::from_secs(1));
+            Timer::set_next_tick(Duration::from_millis(100)); // 100ms timer tick
         }
         33 => {
             // UART Interrupt
